@@ -20,15 +20,11 @@ class Question:
         self.column = column
         self.value = value
         self.operator = operator
+        self.print_str = self.question_to_str()
 
-    def answer(self):
-        pass
+    def question_to_str(self):
+        return 'Is ' + str(self.column) + ' ' + self.operator + ' ' + str(self.value)
 
-    def print_question(self):
-        if is_numeric(self.value):
-            print('Is ' + str(self.column) + ' ' + self.operator + ' ' + str(self.value))
-        else:
-            print('Is ' + str(self.column) + ' == ' + str(self.value))
 
 
 
