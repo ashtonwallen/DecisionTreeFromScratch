@@ -2,15 +2,14 @@ import numpy as np
 from Question import Question, is_numeric
 import pandas as pd
 from math import log2
-from Node import Node
+from Node import Node, LeafNode
+
+# some inspiration for thing like printing the tree came from : https://github.com/random-forests/tutorials/blob/master/decision_tree.py
 
 
 class DecisionTree:
-    def __init__(self, questions, data):
+    def __init__(self, questions):
         self.questions = questions
-        self.data = data
-        self.root_node = None
-        self.info_gains = {}
 
     def simple_entropy(self, target_num_list):
         ret_sum = 0
@@ -24,6 +23,7 @@ class DecisionTree:
 
     def compound_entropy(self, question, data):
         # FULL FORMULA: P(color == 'Green') * simple_entropy([counts <<OF FRUIT>> where fruit == 'green']) + P (color != 'green) * simple_entropy([counts where fruit !== 'green'])
+
         occurances = data[question.column].value_counts()
         target_occ = occurances.loc[question.value]
         all_occurances = sum(occurances)
@@ -54,45 +54,92 @@ class DecisionTree:
         return prob * self.simple_entropy(list(target_fruit_dict.values())) + prob_not * self.simple_entropy(
             list(non_target_dict.values()))
 
-    def calc_info_gains(self):
-        for question in all_questions:
-            self.info_gains[question] = self.compound_entropy(question, train_data)
+    def calc_best_info_gains(self, questions, data):
+        best_gain = 0
+        best_question = None
 
-        self.info_gains = dict(sorted(self.info_gains.items(), key=lambda x: x[1], reverse=True))
+        for question in questions:
+            true, false = self.partition(question, data)
 
-    def build_tree(self):
-        self.root_node = Node(list(self.info_gains.keys())[0] )
-        self.root_node.true_branch, self.root_node.false_branch = self.partition(self.root_node.question, self.data)
+            if len(true) == 0 or len(false) == 0:
+                continue
 
-        print('TRUE BRANCH: ---------------')
-        for item in self.root_node.true_branch:
-            print(item)
+            temp_gain = self.compound_entropy(question, data)
+            if temp_gain > best_gain:
+                best_gain = temp_gain
+                best_question = question
 
-        print('FALSE BRANCH: ---------------')
-        for item in self.root_node.false_branch:
-            print(item)
-
+        return best_question, best_gain
 
     def partition(self, split_question, rows):
-        true_arr = []
-        false_arr = []
+        rows = pd.DataFrame(rows)
+
+        true_df = pd.DataFrame([])
+        false_df = pd.DataFrame([])
 
         for row in rows.iterrows():
-            if split_question.operator is '>=':
-                if row[1][split_question.column] > split_question.value:
-                    true_arr.append
-                    continue
-            else:
+            data = row[-1]
+            if split_question.operator == '>':
+                if split_question.true_or_false(data):
+                    true_df.append(data)
+                else:
+                    false_df.append(data)
+            elif split_question.operator == '==':
+                if split_question.true_or_false(data):
+                    true_df = true_df.append(data)
+                else:
+                    false_df = false_df.append(data)
 
-                if row[1][split_question.column] == split_question.value:
-                    true_arr.append(row)
-                    continue
-            false_arr.append(row)
+        return true_df, false_df
 
-        return true_arr, false_arr
 
-    def print_tree(self):
-        pass
+
+    def build_tree(self, rows):
+        temp_questions = self.questions
+
+        question, gain = self.calc_best_info_gains(temp_questions, rows)
+        if gain == 0:
+            return LeafNode(rows)
+
+        true_rows, false_rows = self.partition(question, rows)
+
+        temp_questions = temp_questions.remove(question)
+
+        true_branch = self.build_tree(true_rows)
+        false_branch = self.build_tree(false_rows)
+
+        return Node(question, true_branch, false_branch)
+
+    def print_tree(self, node):
+        if is_leaf_node(node):
+            print("Predict", node.predictions)
+            return
+
+        print(node.question.print_str)
+
+        print('--> True:')
+        self.print_tree(node.true_branch)
+
+
+        print('--> False:')
+        self.print_tree(node.false_branch)
+
+    def classify(self, row, node):
+        if isinstance(node, LeafNode):
+            return node.predictions
+
+        if node.question.true_or_false(row):
+            return self.classify(row, node.true_branch)
+        else:
+            return self.classify(row, node.false_branch)
+
+
+def is_leaf_node(node):
+    if isinstance(node, LeafNode):
+        return True
+    return False
+
+
 
 
 def generate_all_questions(train_df):
@@ -101,7 +148,7 @@ def generate_all_questions(train_df):
     for col in train_df.columns:
         for row in train_df[col]:
             if is_numeric(row):
-                operator = '>='
+                operator = '>'
             else:
                 operator = '=='
 
@@ -122,8 +169,7 @@ def unique_questions(all_questions):
 
     return ret_questions
 
-
-raw_data = [
+training_data = [
     ['Green', 3, 'Apple'],
     ['Yellow', 3, 'Apple'],
     ['Red', 1, 'Grape'],
@@ -131,11 +177,38 @@ raw_data = [
     ['Yellow', 3, 'Lemon']
 ]
 
-train_data = pd.DataFrame(raw_data, columns=['Color', 'Diameter', 'Fruit'])
-columns = train_data.columns
+train_df = pd.DataFrame(training_data, columns=['Color', 'Diameter', 'Fruit'])
+columns = train_df.columns
 
-all_questions = unique_questions(generate_all_questions(train_data))
-d = DecisionTree(all_questions, train_data)
-d.calc_info_gains()
-d.build_tree()
-d.print_tree()
+all_questions = unique_questions(generate_all_questions(train_df))
+d = DecisionTree(all_questions)
+root_node = d.build_tree(train_df)
+
+d.print_tree(root_node)
+
+
+print("\nTESTING SET TITANIC --------------------------------------------: ")
+
+print('Loading Titanic Dataset...')
+testing_df = pd.read_csv('test.csv')
+final_df = testing_df.drop(columns=['Name', 'Ticket']).fillna(0)
+
+print("Generating Unique Questions...")
+all_questions = unique_questions(generate_all_questions(final_df))
+titanic_tree = DecisionTree(all_questions)
+print("Building Tree (this might take a while)...")
+titanic_root_node = titanic_tree.build_tree(final_df)
+
+print("Printing Tree...")
+titanic_tree.print_tree(titanic_root_node)
+
+print("PASSENGER : SURVIVED")
+for index, row in final_df.iterrows():
+    classification = titanic_tree.classify(row, titanic_root_node)
+    outcome = ''
+    if classification[0] == 1:
+        outcome = 'SURVIVED'
+    else:
+        outcome = 'PERISHED'
+
+    print(str(row['PassengerId']) + ':' + outcome)

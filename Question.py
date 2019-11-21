@@ -1,17 +1,3 @@
-# process ---
-# start w dataset
-# generate all questions
-# determine best question to ask -> first splitting point
-# test rows against condition to split the data (false node, true node)
-# if no data to separate two different things, pick randomly
-
-# ----
-
-# information gain
-#
-
-
-import pandas as pd
 from numbers import Number
 
 
@@ -20,10 +6,15 @@ class Question:
         self.column = column
         self.value = value
         self.operator = operator
-        self.print_str = self.question_to_str()
+        self.print_str = 'Is ' + str(self.column) + ' ' + self.operator + ' ' + str(self.value)
 
-    def question_to_str(self):
-        return 'Is ' + str(self.column) + ' ' + self.operator + ' ' + str(self.value)
+    def true_or_false(self, data):
+        col_val = data[self.column]
+       # print(str(type(col_val)) + ' ' + str(col_val) + " : " + str(type(self.value)) + str(self.value))
+        if is_numeric(col_val) and is_numeric(self.value):
+            return col_val > self.value
+        else:
+            return col_val == self.value
 
 
 
